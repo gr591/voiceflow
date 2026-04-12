@@ -399,8 +399,10 @@ pub fn set_window_size(
         .get_webview_window("main")
         .ok_or("main window not found")?;
 
+    // Use LogicalSize so the frontend constants (which are CSS/logical pixels)
+    // map correctly — PhysicalSize would halve the window on 2x Retina displays.
     window
-        .set_size(tauri::PhysicalSize::new(width, height))
+        .set_size(tauri::LogicalSize::new(width as f64, height as f64))
         .map_err(|e| e.to_string())?;
 
     // Reposition only when explicitly requested (e.g. switching to large mode).

@@ -12,6 +12,7 @@ function ThemedApp() {
     <div
       className={`w-screen h-screen ${theme === "dark" ? "dark" : ""}`}
       data-theme={theme}
+      style={{ background: "transparent" }}
     >
       <Overlay />
     </div>

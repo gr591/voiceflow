@@ -16,7 +16,7 @@ type UIMode = "small" | "large";
 
 // Window dimensions
 const SMALL_W        = 264;
-const SMALL_EMPTY_H  = 96;   // buttons only
+const SMALL_EMPTY_H  = 100;  // buttons only (macOS needs 4 extra px for 1px border each side + breathing room)
 const SMALL_TEXT_H   = 252;  // text preview + buttons
 const LARGE_W        = 480;
 const LARGE_H        = 400;

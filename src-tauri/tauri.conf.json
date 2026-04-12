@@ -15,7 +15,7 @@
         "label": "main",
         "title": "VoiceFlow",
         "width": 264,
-        "height": 96,
+        "height": 100,
         "minWidth": 80,
         "minHeight": 80,
         "decorations": false,
@@ -62,7 +62,10 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "11.0",
-      "frameworks": []
+      "frameworks": [],
+      "info": {
+        "NSMicrophoneUsageDescription": "VoiceFlow needs microphone access to transcribe your speech."
+      }
     }
   },
   "plugins": {
