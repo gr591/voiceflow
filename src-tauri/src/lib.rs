@@ -36,9 +36,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
+                use tauri::window::Color;
                 if let Some(window) = app.get_webview_window("main") {
                     // Color(r, g, b, a) — all-zero = fully transparent
-                    let _ = window.set_background_color(Some(tauri::Color(0, 0, 0, 0)));
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
                 }
             }
 
