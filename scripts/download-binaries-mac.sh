@@ -64,7 +64,7 @@ if [ -f "$BIN/whisper-cli" ]; then
     echo "  Already exists, skipping."
 else
     if command -v brew &>/dev/null; then
-        brew install --quiet whisper-cpp 2>&1 | tail -3
+        brew install --quiet whisper-cpp || true
 
         # Find the installed binary — Homebrew puts it in its bin dir
         BREW_BIN="$(brew --prefix)/bin"
@@ -131,10 +131,9 @@ if [ -n "$PIPER_URL" ]; then
 
     # The tarball extracts to a piper/ subdirectory.
     # Copy only regular files (not directories) from anywhere inside.
-    find "$TMP_EXT" -type f \( -name "piper" -o -name "*.dylib" -o -name "*.so" -o -name "*.ort" \) \
-        | while read -r f; do
-            cp -f "$f" "$BIN/"
-        done
+    while IFS= read -r f; do
+        cp -f "$f" "$BIN/"
+    done < <(find "$TMP_EXT" -type f \( -name "piper" -o -name "*.dylib" -o -name "*.so" -o -name "*.ort" \))
 
     # Copy espeak-ng-data directory tree
     ESPEAK_SRC="$(find "$TMP_EXT" -type d -name "espeak-ng-data" | head -1)"
@@ -190,10 +189,9 @@ if [ -n "$LLAMA_URL" ]; then
     echo "  Extracting..."
     tar -xzf "$TMP_TGZ" -C "$TMP_EXT"
 
-    find "$TMP_EXT" -type f \( -name "llama-server" -o -name "*.dylib" \) \
-        | while read -r f; do
-            cp -f "$f" "$LLAMA_DIR/"
-        done
+    while IFS= read -r f; do
+        cp -f "$f" "$LLAMA_DIR/"
+    done < <(find "$TMP_EXT" -type f \( -name "llama-server" -o -name "*.dylib" \))
 
     chmod +x "$LLAMA_DIR/llama-server" 2>/dev/null || true
     rm -rf "$TMP_DIR"
