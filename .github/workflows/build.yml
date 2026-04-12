@@ -129,6 +129,9 @@ jobs:
 
       - name: Download macOS binaries
         run: bash scripts/download-binaries-mac.sh
+        env:
+          # Higher GitHub API rate limit for asset URL lookups
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build macOS DMG (Universal)
         run: node node_modules/@tauri-apps/cli/tauri.js build --bundles dmg --target universal-apple-darwin

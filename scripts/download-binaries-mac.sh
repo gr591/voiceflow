@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Download bundled binaries for VoiceFlow on macOS (used by CI and local dev).
 #
-# Downloads (arm64 preferred; falls back to x86_64 if no arm64 release exists):
-#   - whisper binary       → src-tauri/binaries/
+# Downloads:
+#   - whisper-cli binary   → src-tauri/binaries/  (via Homebrew or source build)
 #   - ggml-base.bin model  → src-tauri/binaries/
 #   - piper binary + libs  → src-tauri/binaries/
 #   - piper voice model    → src-tauri/binaries/voices/
@@ -23,19 +23,18 @@ VOICES_DIR="$BIN/voices"
 
 mkdir -p "$BIN" "$LLAMA_DIR" "$MODELS_DIR" "$VOICES_DIR"
 
-# Detect arch
 ARCH="$(uname -m)"  # arm64 or x86_64
 echo "Host architecture: $ARCH"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 gh_latest_asset() {
-    # Usage: gh_latest_asset <owner/repo> <pattern>
-    # Prints the browser_download_url of the first matching asset in the latest release.
+    # Prints the browser_download_url of the first asset matching <pattern> in the latest release.
     local repo="$1" pattern="$2"
     curl -fsSL \
         -H "Accept: application/vnd.github+json" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
+        ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
         "https://api.github.com/repos/$repo/releases/latest" \
     | python3 -c "
 import sys, json, re
@@ -51,52 +50,51 @@ for a in data.get('assets', []):
 download() {
     local url="$1" dest="$2"
     echo "  Downloading $(basename "$dest") ..."
-    curl -fsSL -o "$dest" "$url"
+    curl -fsSL --retry 3 -o "$dest" "$url"
 }
 
-# ── 1. whisper.cpp ────────────────────────────────────────────────────────────
+# ── 1. whisper-cli ────────────────────────────────────────────────────────────
+# whisper.cpp doesn't publish macOS pre-built binaries in GitHub releases.
+# Install via Homebrew (available on all macOS CI runners and most dev Macs).
 
 echo ""
-echo "[1/5] Fetching whisper.cpp release..."
+echo "[1/6] Installing whisper-cli via Homebrew..."
 
-if [ "$ARCH" = "arm64" ]; then
-    WHISPER_PATTERN="macos.*arm64|arm64.*macos"
+if [ -f "$BIN/whisper-cli" ]; then
+    echo "  Already exists, skipping."
 else
-    WHISPER_PATTERN="macos.*x64|x64.*macos|macos.*x86_64|x86_64.*macos"
-fi
+    if command -v brew &>/dev/null; then
+        brew install --quiet whisper-cpp 2>&1 | tail -3
 
-WHISPER_URL="$(gh_latest_asset "ggml-org/whisper.cpp" "$WHISPER_PATTERN" || true)"
+        # Find the installed binary — Homebrew puts it in its bin dir
+        BREW_BIN="$(brew --prefix)/bin"
+        WHISPER_BIN=""
+        for name in whisper-cli whisper main; do
+            if [ -f "$BREW_BIN/$name" ]; then
+                WHISPER_BIN="$BREW_BIN/$name"
+                break
+            fi
+        done
 
-if [ -z "$WHISPER_URL" ]; then
-    # Some releases only have a single macOS build; try generic "macos"
-    WHISPER_URL="$(gh_latest_asset "ggml-org/whisper.cpp" "macos" || true)"
-fi
-
-if [ -n "$WHISPER_URL" ]; then
-    TMP_ZIP="$(mktemp -d)/whisper.zip"
-    TMP_EXT="$(mktemp -d)"
-    download "$WHISPER_URL" "$TMP_ZIP"
-    echo "  Extracting..."
-    unzip -q "$TMP_ZIP" -d "$TMP_EXT"
-    # Copy all files flat into binaries/
-    find "$TMP_EXT" -maxdepth 3 \( -name "whisper-cli" -o -name "whisper" -o -name "main" -o -name "*.dylib" \) | while read -r f; do
-        cp -f "$f" "$BIN/"
-    done
-    # Rename 'main' to 'whisper' if that's what shipped
-    if [ -f "$BIN/main" ] && [ ! -f "$BIN/whisper-cli" ]; then
-        mv "$BIN/main" "$BIN/whisper-cli"
+        if [ -n "$WHISPER_BIN" ]; then
+            cp -f "$WHISPER_BIN" "$BIN/whisper-cli"
+            chmod +x "$BIN/whisper-cli"
+            # Copy any whisper dylibs brew may have installed
+            find "$(brew --prefix)/lib" -maxdepth 1 -name "libwhisper*" 2>/dev/null \
+                | while read -r f; do cp -f "$f" "$BIN/"; done
+            echo "  whisper-cli installed from Homebrew."
+        else
+            echo "  WARNING: brew installed whisper-cpp but binary not found — STT will use cloud."
+        fi
+    else
+        echo "  WARNING: Homebrew not found — whisper not installed. STT will use cloud."
     fi
-    chmod +x "$BIN"/whisper-cli "$BIN"/whisper 2>/dev/null || true
-    rm -rf "$TMP_ZIP" "$TMP_EXT"
-    echo "  whisper binary installed."
-else
-    echo "  WARNING: Could not find a macOS whisper.cpp release asset. STT will fall back to cloud."
 fi
 
 # ── 2. ggml-base.bin ─────────────────────────────────────────────────────────
 
 echo ""
-echo "[2/5] Downloading ggml-base.bin..."
+echo "[2/6] Downloading ggml-base.bin..."
 MODEL_PATH="$BIN/ggml-base.bin"
 if [ -f "$MODEL_PATH" ]; then
     echo "  Already exists, skipping."
@@ -108,84 +106,100 @@ else
 fi
 
 # ── 3. piper ─────────────────────────────────────────────────────────────────
+# Asset names: piper_macos_aarch64.tar.gz  or  piper_macos_x64.tar.gz
 
 echo ""
-echo "[3/5] Fetching piper release..."
+echo "[3/6] Fetching piper release..."
 
 if [ "$ARCH" = "arm64" ]; then
-    PIPER_PATTERN="macos_aarch64|macos.*arm64|arm64.*macos"
+    PIPER_PATTERN="piper_macos_aarch64"
 else
-    PIPER_PATTERN="macos_x86_64|macos_amd64|macos.*x64|x64.*macos"
+    PIPER_PATTERN="piper_macos_x64"
 fi
 
 PIPER_URL="$(gh_latest_asset "rhasspy/piper" "$PIPER_PATTERN" || true)"
 
 if [ -n "$PIPER_URL" ]; then
-    TMP_ZIP="$(mktemp -d)/piper.tar.gz"
-    TMP_EXT="$(mktemp -d)"
-    download "$PIPER_URL" "$TMP_ZIP"
+    TMP_DIR="$(mktemp -d)"
+    TMP_TGZ="$TMP_DIR/piper.tar.gz"
+    TMP_EXT="$TMP_DIR/extract"
+    mkdir -p "$TMP_EXT"
+
+    download "$PIPER_URL" "$TMP_TGZ"
     echo "  Extracting..."
-    tar -xzf "$TMP_ZIP" -C "$TMP_EXT" 2>/dev/null || unzip -q "$TMP_ZIP" -d "$TMP_EXT"
-    # Copy piper binary and dylibs
-    find "$TMP_EXT" \( -name "piper" -o -name "*.dylib" -o -name "*.ort" \) | while read -r f; do
-        cp -f "$f" "$BIN/"
-    done
-    # Copy espeak-ng-data if present
+    tar -xzf "$TMP_TGZ" -C "$TMP_EXT"
+
+    # The tarball extracts to a piper/ subdirectory.
+    # Copy only regular files (not directories) from anywhere inside.
+    find "$TMP_EXT" -type f \( -name "piper" -o -name "*.dylib" -o -name "*.so" -o -name "*.ort" \) \
+        | while read -r f; do
+            cp -f "$f" "$BIN/"
+        done
+
+    # Copy espeak-ng-data directory tree
     ESPEAK_SRC="$(find "$TMP_EXT" -type d -name "espeak-ng-data" | head -1)"
     if [ -n "$ESPEAK_SRC" ]; then
         cp -rf "$ESPEAK_SRC" "$BIN/"
         echo "  Copied espeak-ng-data."
     fi
+
     chmod +x "$BIN/piper" 2>/dev/null || true
-    rm -rf "$TMP_ZIP" "$TMP_EXT"
-    echo "  piper binary installed."
+    rm -rf "$TMP_DIR"
+    echo "  piper installed."
 else
-    echo "  WARNING: Could not find a macOS piper release asset. Local TTS unavailable."
+    echo "  WARNING: Could not find piper macOS asset — local TTS unavailable."
 fi
 
 # ── 4. piper voice model ──────────────────────────────────────────────────────
 
 echo ""
-echo "[4/5] Downloading piper voice model..."
+echo "[4/6] Downloading piper voice model..."
 VOICE_ONNX="$VOICES_DIR/en_US-ryan-high.onnx"
 VOICE_JSON="$VOICES_DIR/en_US-ryan-high.onnx.json"
-HF_VOICE_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high"
+HF_VOICE="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high"
 
 if [ -f "$VOICE_ONNX" ]; then
-    echo "  Voice model already exists, skipping."
+    echo "  Already exists, skipping."
 else
-    download "$HF_VOICE_BASE/en_US-ryan-high.onnx"      "$VOICE_ONNX"
-    download "$HF_VOICE_BASE/en_US-ryan-high.onnx.json"  "$VOICE_JSON"
+    download "$HF_VOICE/en_US-ryan-high.onnx"      "$VOICE_ONNX"
+    download "$HF_VOICE/en_US-ryan-high.onnx.json"  "$VOICE_JSON"
     echo "  Voice model saved."
 fi
 
 # ── 5. llama-server ───────────────────────────────────────────────────────────
+# Asset names: llama-bXXXX-bin-macos-arm64.tar.gz  or  llama-bXXXX-bin-macos-x64.tar.gz
 
 echo ""
-echo "[5/6] Fetching llama.cpp release..."
+echo "[5/6] Fetching llama-server..."
 
 if [ "$ARCH" = "arm64" ]; then
-    LLAMA_PATTERN="macos.*arm64|arm64.*macos|macos-arm"
+    LLAMA_PATTERN="bin-macos-arm64\.tar\.gz$"
 else
-    LLAMA_PATTERN="macos.*x64|x64.*macos|macos.*x86"
+    LLAMA_PATTERN="bin-macos-x64\.tar\.gz$"
 fi
 
 LLAMA_URL="$(gh_latest_asset "ggml-org/llama.cpp" "$LLAMA_PATTERN" || true)"
 
 if [ -n "$LLAMA_URL" ]; then
-    TMP_ZIP="$(mktemp -d)/llama.zip"
-    TMP_EXT="$(mktemp -d)"
-    download "$LLAMA_URL" "$TMP_ZIP"
+    TMP_DIR="$(mktemp -d)"
+    TMP_TGZ="$TMP_DIR/llama.tar.gz"
+    TMP_EXT="$TMP_DIR/extract"
+    mkdir -p "$TMP_EXT"
+
+    download "$LLAMA_URL" "$TMP_TGZ"
     echo "  Extracting..."
-    unzip -q "$TMP_ZIP" -d "$TMP_EXT" 2>/dev/null || tar -xzf "$TMP_ZIP" -C "$TMP_EXT"
-    find "$TMP_EXT" -type f \( -name "llama-server" -o -name "*.dylib" \) | while read -r f; do
-        cp -f "$f" "$LLAMA_DIR/"
-    done
+    tar -xzf "$TMP_TGZ" -C "$TMP_EXT"
+
+    find "$TMP_EXT" -type f \( -name "llama-server" -o -name "*.dylib" \) \
+        | while read -r f; do
+            cp -f "$f" "$LLAMA_DIR/"
+        done
+
     chmod +x "$LLAMA_DIR/llama-server" 2>/dev/null || true
-    rm -rf "$TMP_ZIP" "$TMP_EXT"
+    rm -rf "$TMP_DIR"
     echo "  llama-server installed."
 else
-    echo "  WARNING: Could not find a macOS llama.cpp release asset. Bundled LLM unavailable."
+    echo "  WARNING: Could not find macOS llama.cpp release asset — bundled LLM unavailable."
 fi
 
 # ── 6. LFM2.5-350M model ─────────────────────────────────────────────────────
@@ -206,5 +220,5 @@ fi
 
 echo ""
 echo "Done! macOS binaries are ready."
-echo "Now build: node node_modules/@tauri-apps/cli/tauri.js build --bundles dmg --target universal-apple-darwin"
+echo "Build: node node_modules/@tauri-apps/cli/tauri.js build --bundles dmg --target universal-apple-darwin"
 echo ""
