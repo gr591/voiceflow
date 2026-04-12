@@ -155,6 +155,11 @@ jobs:
       - name: Package DMG
         run: |
           APP=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -name "*.app" | head -1)
+          # Strip quarantine flags from all files inside the bundle.
+          # Without this, macOS blocks execution of sidecar binaries
+          # (whisper-cli, piper, llama-server) even inside an app the
+          # user has already opened via right-click → Open.
+          xattr -cr "$APP"
           hdiutil create \
             -volname "VoiceFlow" \
             -srcfolder "$APP" \

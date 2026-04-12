@@ -23,11 +23,14 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
     let tmp_txt = std::env::temp_dir().join("voiceflow_in.wav.txt");
     std::fs::write(&tmp_wav, &wav_bytes).map_err(|e| format!("write temp wav: {e}"))?;
 
-    // Run whisper.cpp: -m <model> -f <wav> --output-txt -nt -np -l en
-    // Set cwd to bin's directory so Windows can resolve the sibling DLLs.
+    // Set cwd to bin's directory so the dynamic linker can find sibling libs.
+    let bin_dir = bin.parent().map(|p| p.to_path_buf());
     let mut cmd = std::process::Command::new(&bin);
-    if let Some(bin_dir) = bin.parent() {
-        cmd.current_dir(bin_dir);
+    if let Some(ref d) = bin_dir {
+        cmd.current_dir(d);
+        // macOS: DYLD_LIBRARY_PATH so bundled libwhisper.dylib is found.
+        #[cfg(target_os = "macos")]
+        cmd.env("DYLD_LIBRARY_PATH", d);
     }
     // Suppress the console window on Windows.
     #[cfg(target_os = "windows")]
@@ -36,12 +39,17 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    // Flags used:
+    //   -nt  no timestamps (supported since early versions)
+    //   -otxt  write output to <wav>.txt (more widely supported than --output-txt)
+    //   -l en  language hint
+    // NOTE: -np (--no-prints) was added in whisper.cpp v1.6 and is intentionally
+    // omitted here so the binary works with any brew-installed version.
     let output = cmd.args([
             "-m", model.to_str().unwrap_or("ggml-base.bin"),
             "-f", tmp_wav.to_str().unwrap_or(""),
-            "--output-txt",
-            "-nt",   // no timestamps
-            "-np",   // no progress output
+            "-otxt",  // write transcript to <wav>.txt
+            "-nt",    // no timestamps
             "-l", "en",
         ])
         .output()
@@ -61,9 +69,14 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
 
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
-        // Surface stderr for debugging
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(format!("whisper returned empty output. stderr: {err}"))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let status = output.status;
+        Err(format!(
+            "whisper produced no output (exit {status}). \
+             binary={bin} \
+             stderr: {stderr}",
+            bin = bin.display()
+        ))
     } else {
         Ok(trimmed)
     }
