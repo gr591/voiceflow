@@ -14,13 +14,17 @@ src-tauri/binaries/whisper
 src-tauri/binaries/whisper-cli
 src-tauri/binaries/piper.exe
 src-tauri/binaries/piper
-src-tauri/binaries/espeak-ng-data/
 src-tauri/binaries/pkgconfig/
 src-tauri/binaries/libtashkeel_model.ort
 src-tauri/binaries/ggml-base.bin
-src-tauri/binaries/llama/
-src-tauri/binaries/models/
-src-tauri/binaries/voices/
+src-tauri/binaries/llama/*
+!src-tauri/binaries/llama/.gitkeep
+src-tauri/binaries/models/*
+!src-tauri/binaries/models/.gitkeep
+src-tauri/binaries/voices/*
+!src-tauri/binaries/voices/.gitkeep
+src-tauri/binaries/espeak-ng-data/*
+!src-tauri/binaries/espeak-ng-data/.gitkeep
 
 # Env / keys
 .env
