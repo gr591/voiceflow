@@ -28,6 +28,16 @@ pub fn run() {
         .setup(|app| {
             hotkey::register_hotkey(app)?;
             tray::setup_tray(app)?;
+
+            // macOS: WKWebView renders a white background by default even when
+            // the OS-level window has transparent:true.  Force the native
+            // webview layer to be fully transparent so the rounded pill corners
+            // show the desktop instead of white.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_background_color(None);
+            }
+
             Ok(())
         })
         // ── Commands ───────────────────────────────────────────────────────
