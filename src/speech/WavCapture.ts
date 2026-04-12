@@ -85,8 +85,40 @@ export class WavCapture {
       offset += chunk.length;
     }
 
-    return encodeWav(merged, this.sampleRate);
+    // Resample to 16 kHz. WKWebView on macOS ignores the AudioContext sampleRate
+    // hint and runs at the hardware rate (usually 48 kHz); older whisper.cpp
+    // builds from Homebrew don't auto-resample and return empty output for
+    // non-16 kHz input. Doing it here makes the WAV format deterministic.
+    const TARGET_RATE = 16000;
+    const out = this.sampleRate === TARGET_RATE
+      ? merged
+      : resampleLinear(merged, this.sampleRate, TARGET_RATE);
+
+    return encodeWav(out, TARGET_RATE);
   }
+}
+
+/**
+ * Linear-interpolation resampler. Sufficient quality for speech recognition
+ * (whisper handles up to ~8 kHz content, half the 16 kHz rate).
+ */
+function resampleLinear(
+  samples: Float32Array,
+  fromRate: number,
+  toRate: number,
+): Float32Array {
+  if (fromRate === toRate) return samples;
+  const ratio = fromRate / toRate;
+  const outLen = Math.floor(samples.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio;
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, samples.length - 1);
+    const frac = srcIdx - lo;
+    out[i] = samples[lo] * (1 - frac) + samples[hi] * frac;
+  }
+  return out;
 }
 
 /** Encode Float32 PCM samples as a 16-bit mono WAV ArrayBuffer. */
