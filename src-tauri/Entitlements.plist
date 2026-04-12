@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Microphone access for speech-to-text -->
+  <key>com.apple.security.device.microphone</key>
+  <true/>
+
+  <!-- Accessibility: simulate keyboard input for text insertion -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+
+  <!-- Network access for cloud STT/TTS/LLM providers -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- Read/write clipboard -->
+  <key>com.apple.security.temporary-exception.apple-events</key>
+  <string>com.apple.finder</string>
+</dict>
+</plist>

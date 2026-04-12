@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Runtime binaries — downloaded by CI / scripts/download-llama.ps1
+src-tauri/binaries/*.dll
+src-tauri/binaries/*.dylib
+src-tauri/binaries/whisper.exe
+src-tauri/binaries/whisper
+src-tauri/binaries/whisper-cli
+src-tauri/binaries/piper.exe
+src-tauri/binaries/piper
+src-tauri/binaries/espeak-ng-data/
+src-tauri/binaries/pkgconfig/
+src-tauri/binaries/libtashkeel_model.ort
+src-tauri/binaries/ggml-base.bin
+src-tauri/binaries/llama/
+src-tauri/binaries/models/
+src-tauri/binaries/voices/
+
+# Env / keys
+.env
+.env.*
+src-tauri/.tauri-key

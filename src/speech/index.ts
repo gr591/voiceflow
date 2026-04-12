@@ -1,0 +1,10 @@
+export * from "./types";
+export { speechManager, SpeechManager } from "./SpeechManager";
+export { ttsManager, TTSManager } from "./TTSManager";
+export { WhisperCloudProvider } from "./WhisperCloudProvider";
+export { TTSCloudProvider } from "./TTSCloudProvider";
+export { TTSSystemProvider } from "./TTSSystemProvider";
+export { MicCapture } from "./MicCapture";
+export { WhisperLocalProvider } from "./WhisperLocalProvider";
+export { WavCapture } from "./WavCapture";
+export { TTSPiperProvider } from "./TTSPiperProvider";
