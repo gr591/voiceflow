@@ -15,6 +15,8 @@ pub fn speak(text: &str, model: Option<&str>) -> Result<Vec<u8>, String> {
 
     let tmp_wav = std::env::temp_dir().join("voiceflow_tts.wav");
 
+    let bin_dir = bin.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+
     let mut cmd = std::process::Command::new(&bin);
     cmd.args([
             "--model",       model_path.to_str().unwrap_or(""),
@@ -23,8 +25,14 @@ pub fn speak(text: &str, model: Option<&str>) -> Result<Vec<u8>, String> {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        // DLLs live next to piper.exe
-        .current_dir(bin.parent().unwrap_or_else(|| std::path::Path::new(".")));
+        // DLLs / dylibs and espeak-ng-data live next to the piper binary
+        .current_dir(&bin_dir);
+
+    // macOS: current_dir alone does NOT help the dynamic linker find sibling
+    // dylibs (libpiper_phonemize.dylib, etc.). Set DYLD_LIBRARY_PATH explicitly.
+    #[cfg(target_os = "macos")]
+    cmd.env("DYLD_LIBRARY_PATH", &bin_dir);
+
     // Suppress the console window on Windows.
     #[cfg(target_os = "windows")]
     {
@@ -58,6 +66,15 @@ fn resolve_paths(model_override: Option<&str>) -> Result<(PathBuf, PathBuf), Str
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
+    // On macOS, Tauri bundles resources into Contents/Resources/ while the
+    // executable lives in Contents/MacOS/.
+    #[cfg(target_os = "macos")]
+    let resource_dir = exe_dir.as_ref().and_then(|d| {
+        d.parent().map(|contents| contents.join("Resources"))
+    });
+    #[cfg(not(target_os = "macos"))]
+    let resource_dir: Option<PathBuf> = None;
+
     let cwd = std::env::current_dir().unwrap_or_default();
     let dev_dir = if cwd.join("binaries").exists() {
         Some(cwd.join("binaries"))
@@ -68,27 +85,22 @@ fn resolve_paths(model_override: Option<&str>) -> Result<(PathBuf, PathBuf), Str
     };
 
     // Find piper binary
-    // Candidate order: exe_dir/binaries/ (installed bundle), exe_dir/ (flat bundle),
-    //                  dev binaries/ dir, PATH fallback
     let bin = ["piper.exe", "piper"]
         .iter()
         .flat_map(|name| {
             let mut c = vec![];
+            if let Some(ref d) = resource_dir {
+                c.push(d.join("binaries").join(name)); // macOS bundle
+            }
             if let Some(ref d) = exe_dir {
                 c.push(d.join("binaries").join(name)); // installed via NSIS
                 c.push(d.join(name));                  // flat sidecar
             }
             if let Some(ref d) = dev_dir  { c.push(d.join(name)); }
-            c.push(PathBuf::from(name));
+            c.push(PathBuf::from(name));               // PATH fallback
             c
         })
-        .find(|p| {
-            p.exists()
-                || matches!(
-                    p.file_name().and_then(|n| n.to_str()),
-                    Some("piper.exe" | "piper")
-                ) && p.components().count() == 1
-        })
+        .find(|p| p.exists() || p.components().count() == 1)
         .unwrap_or_else(|| PathBuf::from("piper"));
 
     // Find model
@@ -97,6 +109,9 @@ fn resolve_paths(model_override: Option<&str>) -> Result<(PathBuf, PathBuf), Str
         .iter()
         .flat_map(|name| {
             let mut c = vec![];
+            if let Some(ref d) = resource_dir {
+                c.push(d.join("binaries").join("voices").join(name)); // macOS bundle
+            }
             if let Some(ref d) = exe_dir {
                 c.push(d.join("binaries").join("voices").join(name)); // installed
                 c.push(d.join("voices").join(name));

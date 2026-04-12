@@ -34,8 +34,13 @@ pub fn run() {
             // webview layer to be fully transparent so the rounded pill corners
             // show the desktop instead of white.
             #[cfg(target_os = "macos")]
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_background_color(None);
+            {
+                use tauri::Manager;
+                use tauri::window::Color;
+                if let Some(window) = app.get_webview_window("main") {
+                    // Color(r, g, b, a) — all-zero = fully transparent
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+                }
             }
 
             Ok(())

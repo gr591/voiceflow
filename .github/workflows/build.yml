@@ -133,18 +133,39 @@ jobs:
           # Higher GitHub API rate limit for asset URL lookups
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build macOS DMG (Universal)
-        run: node node_modules/@tauri-apps/cli/tauri.js build --bundles dmg --target universal-apple-darwin
+      - name: Build macOS app bundle (Universal)
+        # Build the .app first (not DMG) so we can patch Info.plist before packaging.
+        # NSMicrophoneUsageDescription cannot be set via tauri.conf.json in Tauri v2
+        # and must be injected after the bundle is generated.
+        run: node node_modules/@tauri-apps/cli/tauri.js build --bundles app --target universal-apple-darwin
         env:
-          # Skip code signing for unsigned distribution.
-          # Add APPLE_SIGNING_IDENTITY, APPLE_CERTIFICATE, etc. to enable notarisation.
           TAURI_SIGNING_PRIVATE_KEY: ""
+
+      - name: Patch NSMicrophoneUsageDescription into Info.plist
+        run: |
+          APP=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -name "*.app" | head -1)
+          echo "Patching: $APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy \
+            -c "Add :NSMicrophoneUsageDescription string 'VoiceFlow needs microphone access to transcribe your speech.'" \
+            "$APP/Contents/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy \
+            -c "Set :NSMicrophoneUsageDescription 'VoiceFlow needs microphone access to transcribe your speech.'" \
+            "$APP/Contents/Info.plist"
+
+      - name: Package DMG
+        run: |
+          APP=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -name "*.app" | head -1)
+          hdiutil create \
+            -volname "VoiceFlow" \
+            -srcfolder "$APP" \
+            -ov -format UDZO \
+            "VoiceFlow.dmg"
 
       - name: Upload macOS DMG
         uses: actions/upload-artifact@v4
         with:
           name: VoiceFlow-macOS
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: VoiceFlow.dmg
 
   # ── Release (runs only on version tags) ─────────────────────────────────────
   release:

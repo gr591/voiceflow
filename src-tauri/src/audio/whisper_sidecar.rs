@@ -74,6 +74,16 @@ fn resolve_paths() -> Result<(PathBuf, PathBuf), String> {
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
+    // On macOS, Tauri bundles resources into Contents/Resources/ while the
+    // executable lives in Contents/MacOS/.  Derive the resource dir so we
+    // can find bundled binaries at runtime.
+    #[cfg(target_os = "macos")]
+    let resource_dir = exe_dir.as_ref().and_then(|d| {
+        d.parent().map(|contents| contents.join("Resources"))
+    });
+    #[cfg(not(target_os = "macos"))]
+    let resource_dir: Option<PathBuf> = None;
+
     // In `cargo tauri dev` the cwd is src-tauri/; in a plain cargo run it may be
     // the project root. Check both so we find binaries/ in either case.
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -86,28 +96,26 @@ fn resolve_paths() -> Result<(PathBuf, PathBuf), String> {
     };
 
     // Find whisper binary
-    // Candidate order: exe_dir/binaries/ (installed bundle), exe_dir/ (flat bundle),
-    //                  dev binaries/ dir, PATH fallback
-    // "whisper-cli" is the name used in newer whisper.cpp macOS/Linux releases;
+    // Candidate order: macOS resource bundle, exe_dir/binaries/ (installed NSIS),
+    //                  exe_dir/ (flat sidecar), dev binaries/ dir, PATH fallback.
+    // "whisper-cli" is the name in newer whisper.cpp macOS/Linux releases;
     // "whisper.exe" / "whisper" are used on Windows / older builds.
     let bin = ["whisper-cli", "whisper.exe", "whisper"]
         .iter()
         .flat_map(|name| {
             let mut candidates = vec![];
+            if let Some(ref d) = resource_dir {
+                candidates.push(d.join("binaries").join(name)); // macOS bundle
+            }
             if let Some(ref d) = exe_dir {
                 candidates.push(d.join("binaries").join(name)); // installed via NSIS
                 candidates.push(d.join(name));                  // flat sidecar
             }
             if let Some(ref d) = dev_dir  { candidates.push(d.join(name)); }
-            candidates.push(PathBuf::from(name));
+            candidates.push(PathBuf::from(name));               // PATH fallback
             candidates
         })
-        .find(|p| {
-            matches!(
-                p.file_name().and_then(|n| n.to_str()),
-                Some("whisper-cli" | "whisper.exe" | "whisper")
-            ) && (p.exists() || p.components().count() == 1)
-        })
+        .find(|p| p.exists() || p.components().count() == 1)
         .unwrap_or_else(|| PathBuf::from("whisper-cli"));
 
     // Find model
@@ -115,6 +123,9 @@ fn resolve_paths() -> Result<(PathBuf, PathBuf), String> {
         .iter()
         .flat_map(|name| {
             let mut candidates = vec![];
+            if let Some(ref d) = resource_dir {
+                candidates.push(d.join("binaries").join(name)); // macOS bundle
+            }
             if let Some(ref d) = exe_dir {
                 candidates.push(d.join("binaries").join(name)); // installed
                 candidates.push(d.join(name));

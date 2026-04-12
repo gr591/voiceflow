@@ -62,10 +62,7 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "minimumSystemVersion": "11.0",
-      "frameworks": [],
-      "info": {
-        "NSMicrophoneUsageDescription": "VoiceFlow needs microphone access to transcribe your speech."
-      }
+      "frameworks": []
     }
   },
   "plugins": {
