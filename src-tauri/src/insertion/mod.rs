@@ -37,15 +37,19 @@ pub async fn insert_at_cursor(app: AppHandle, text: String) -> Result<(), String
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // 7. Simulate paste: Ctrl+V on Windows/Linux, Cmd+V on macOS
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-    #[cfg(not(target_os = "macos"))]
-    let modifier = Key::Control;
-    #[cfg(target_os = "macos")]
-    let modifier = Key::Meta; // Command key
-    enigo.key(modifier, Direction::Press).map_err(|e| e.to_string())?;
-    enigo.key(Key::Unicode('v'), Direction::Click).map_err(|e| e.to_string())?;
-    enigo.key(modifier, Direction::Release).map_err(|e| e.to_string())?;
+    // 7. Simulate paste: Ctrl+V on Windows/Linux, Cmd+V on macOS.
+    // Enigo is not Send on macOS (CGEventSource), so it must be created, used,
+    // and dropped entirely before any subsequent await point.
+    {
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+        #[cfg(not(target_os = "macos"))]
+        let modifier = Key::Control;
+        #[cfg(target_os = "macos")]
+        let modifier = Key::Meta; // Command key
+        enigo.key(modifier, Direction::Press).map_err(|e| e.to_string())?;
+        enigo.key(Key::Unicode('v'), Direction::Click).map_err(|e| e.to_string())?;
+        enigo.key(modifier, Direction::Release).map_err(|e| e.to_string())?;
+    } // enigo dropped here — before the await below
 
     // 8. Wait for paste to complete, then restore original clipboard
     tokio::time::sleep(Duration::from_millis(200)).await;
