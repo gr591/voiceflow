@@ -62,6 +62,7 @@ pub fn run() {
             audio::speak_text,
             audio::stop_speaking,
             audio::transcribe_audio,
+            audio::whisper_diagnose,
             audio::speak_with_piper,
             // WS5: text insertion (stub — WS5 replaces with real implementation)
             insertion::insert_at_cursor,
