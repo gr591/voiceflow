@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 /// Flow: save clipboard → write text → hide overlay → restore window focus → Ctrl+V → restore clipboard
 #[tauri::command]
 pub async fn insert_at_cursor(app: AppHandle, text: String) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
     use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
     // 1. Copy the saved HWND out before any await points.
@@ -37,19 +38,35 @@ pub async fn insert_at_cursor(app: AppHandle, text: String) -> Result<(), String
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    // 7. Simulate paste: Ctrl+V on Windows/Linux, Cmd+V on macOS.
-    // Enigo is not Send on macOS (CGEventSource), so it must be created, used,
-    // and dropped entirely before any subsequent await point.
+    // 7. Simulate paste.
+    #[cfg(not(target_os = "macos"))]
     {
+        // Windows/Linux: enigo Ctrl+V. Enigo is not Send on some platforms,
+        // so create, use, and drop before any await.
         let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
-        #[cfg(not(target_os = "macos"))]
-        let modifier = Key::Control;
-        #[cfg(target_os = "macos")]
-        let modifier = Key::Meta; // Command key
-        enigo.key(modifier, Direction::Press).map_err(|e| e.to_string())?;
+        enigo.key(Key::Control, Direction::Press).map_err(|e| e.to_string())?;
         enigo.key(Key::Unicode('v'), Direction::Click).map_err(|e| e.to_string())?;
-        enigo.key(modifier, Direction::Release).map_err(|e| e.to_string())?;
-    } // enigo dropped here — before the await below
+        enigo.key(Key::Control, Direction::Release).map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: enigo's keycode_to_string calls TSMGetInputSourceProperty which
+        // asserts the main dispatch queue — crashes when invoked from a tokio
+        // worker. Use AppleScript System Events instead; no main-thread needed.
+        let output = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                "tell application \"System Events\" to keystroke \"v\" using command down",
+            ])
+            .output()
+            .map_err(|e| format!("osascript paste: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "osascript paste failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
 
     // 8. Wait for paste to complete, then restore original clipboard
     tokio::time::sleep(Duration::from_millis(200)).await;
