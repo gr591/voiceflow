@@ -50,22 +50,26 @@ pub async fn insert_at_cursor(app: AppHandle, text: String) -> Result<(), String
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS: enigo's keycode_to_string calls TSMGetInputSourceProperty which
-        // asserts the main dispatch queue — crashes when invoked from a tokio
-        // worker. Use AppleScript System Events instead; no main-thread needed.
-        let output = std::process::Command::new("osascript")
-            .args([
-                "-e",
-                "tell application \"System Events\" to keystroke \"v\" using command down",
-            ])
-            .output()
-            .map_err(|e| format!("osascript paste: {e}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "osascript paste failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
+        // macOS: post CGEvents directly. Enigo's keycode_to_string calls
+        // TSMGetInputSourceProperty which crashes off the main dispatch queue.
+        // osascript works but attributes keystrokes to osascript, not VoiceFlow,
+        // so the Accessibility grant can't be scoped to the app. CGEventPost
+        // attributes to the calling process (VoiceFlow), which is what we want.
+        use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+            .map_err(|_| "CGEventSource::new failed".to_string())?;
+        // V key = virtual keycode 9 on macOS (ANSI layout).
+        const KEY_V: u16 = 9;
+        let key_down = CGEvent::new_keyboard_event(source.clone(), KEY_V, true)
+            .map_err(|_| "CGEvent keydown failed".to_string())?;
+        key_down.set_flags(CGEventFlags::CGEventFlagCommand);
+        key_down.post(CGEventTapLocation::HID);
+        let key_up = CGEvent::new_keyboard_event(source, KEY_V, false)
+            .map_err(|_| "CGEvent keyup failed".to_string())?;
+        key_up.set_flags(CGEventFlags::CGEventFlagCommand);
+        key_up.post(CGEventTapLocation::HID);
     }
 
     // 8. Wait for paste to complete, then restore original clipboard
