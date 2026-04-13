@@ -41,6 +41,7 @@ export class ClaudeProvider implements LLMProvider {
         "content-type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
 
     if (!res.ok) {

@@ -24,14 +24,28 @@ pub fn speak(text: &str, model: Option<&str>) -> Result<Vec<u8>, String> {
         ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped()) // capture for error reporting
         // DLLs / dylibs and espeak-ng-data live next to the piper binary
         .current_dir(&bin_dir);
 
     // macOS: current_dir alone does NOT help the dynamic linker find sibling
-    // dylibs (libpiper_phonemize.dylib, etc.). Set DYLD_LIBRARY_PATH explicitly.
+    // dylibs (libpiper_phonemize.dylib, etc.).  Prepend to DYLD_LIBRARY_PATH.
+    // Also set ESPEAK_DATA so piper finds the phoneme data for the bundled
+    // espeak-ng-data/ directory (silently fails without it).
     #[cfg(target_os = "macos")]
-    cmd.env("DYLD_LIBRARY_PATH", &bin_dir);
+    {
+        let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+        let new_val = if existing.is_empty() {
+            bin_dir.to_string_lossy().to_string()
+        } else {
+            format!("{}:{}", bin_dir.display(), existing)
+        };
+        cmd.env("DYLD_LIBRARY_PATH", new_val);
+        let espeak = bin_dir.join("espeak-ng-data");
+        if espeak.exists() {
+            cmd.env("ESPEAK_DATA", espeak);
+        }
+    }
 
     // Suppress the console window on Windows.
     #[cfg(target_os = "windows")]
@@ -43,15 +57,17 @@ pub fn speak(text: &str, model: Option<&str>) -> Result<Vec<u8>, String> {
     let mut child = cmd.spawn()
         .map_err(|e| format!("spawn piper: {e}. Binary: {}", bin.display()))?;
 
-    // Write text to stdin and close it so piper starts processing
-    if let Some(stdin) = child.stdin.take() {
-        let mut stdin = stdin;
+    // Write text to stdin then drop it (closes pipe) so piper starts processing
+    if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(text.as_bytes()).ok();
     }
 
-    let status = child.wait().map_err(|e| format!("piper wait: {e}"))?;
-    if !status.success() {
-        return Err(format!("piper exited with status {status}"));
+    // Collect exit status + stderr now that stdin is closed
+    let output = child.wait_with_output().map_err(|e| format!("piper wait: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[piper] Error: exit={} stderr={stderr}", output.status);
+        return Err(format!("piper exited with status {}. stderr: {stderr}", output.status));
     }
 
     let bytes = std::fs::read(&tmp_wav)

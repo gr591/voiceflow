@@ -17,5 +17,17 @@
   <!-- Read/write clipboard -->
   <key>com.apple.security.temporary-exception.apple-events</key>
   <string>com.apple.finder</string>
+
+  <!-- Required for DYLD_LIBRARY_PATH to be honoured for child processes
+       (whisper-cli, piper, llama-server) under Hardened Runtime.
+       Without this the OS strips DYLD_* vars and sidecars cannot find
+       their bundled dylibs, producing silent launch failures. -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+
+  <!-- Allow loading third-party dylibs (libwhisper, libggml*, libpiper*,
+       llama dylibs) that are not signed by the same team as the main app. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
 </dict>
 </plist>

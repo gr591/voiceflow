@@ -5,7 +5,7 @@
 //
 // Binary layout (dev + installed):
 //   binaries/llama/llama-server.exe  (+ sibling DLLs)
-//   binaries/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+//   binaries/models/LFM2.5-350M-Q8_0.gguf
 //
 // The child process is killed when LlmServerState is dropped (app exit).
 
@@ -50,6 +50,16 @@ fn resolve_paths() -> Option<(PathBuf, PathBuf)> {
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
+    // On macOS, Tauri bundles resources into Contents/Resources/ while the
+    // executable lives in Contents/MacOS/.  Compute the resource dir so we
+    // can find the bundled binaries at runtime.
+    #[cfg(target_os = "macos")]
+    let resource_dir = exe_dir.as_ref().and_then(|d| {
+        d.parent().map(|contents| contents.join("Resources"))
+    });
+    #[cfg(not(target_os = "macos"))]
+    let resource_dir: Option<PathBuf> = None;
+
     let cwd = std::env::current_dir().unwrap_or_default();
 
     // Try dev-mode binary dirs
@@ -66,8 +76,13 @@ fn resolve_paths() -> Option<(PathBuf, PathBuf)> {
         .iter()
         .flat_map(|name| {
             let mut c: Vec<PathBuf> = vec![];
+            // macOS resource bundle (Contents/Resources/binaries/llama/...)
+            if let Some(ref d) = resource_dir {
+                c.push(d.join("binaries").join("llama").join(name));
+                c.push(d.join("llama").join(name));
+            }
             if let Some(ref d) = exe_dir {
-                c.push(d.join("binaries").join("llama").join(name)); // installed
+                c.push(d.join("binaries").join("llama").join(name)); // installed (Windows)
                 c.push(d.join("llama").join(name));
             }
             if let Some(ref d) = dev_llama {
@@ -80,6 +95,11 @@ fn resolve_paths() -> Option<(PathBuf, PathBuf)> {
     // Model GGUF
     let model = {
         let mut candidates: Vec<PathBuf> = vec![];
+        // macOS resource bundle
+        if let Some(ref d) = resource_dir {
+            candidates.push(d.join("binaries").join("models").join(MODEL_NAME));
+            candidates.push(d.join("models").join(MODEL_NAME));
+        }
         if let Some(ref d) = exe_dir {
             candidates.push(d.join("binaries").join("models").join(MODEL_NAME));
             candidates.push(d.join("models").join(MODEL_NAME));
@@ -138,6 +158,20 @@ pub fn start_bundled_llm(state: tauri::State<LlmServerState>) -> Result<u16, Str
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+
+    // macOS: current_dir alone does NOT help the dynamic linker find sibling
+    // dylibs (ggml-base.dylib, etc.).  Prepend to DYLD_LIBRARY_PATH so any
+    // existing paths from the calling environment are preserved.
+    #[cfg(target_os = "macos")]
+    {
+        let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+        let new_val = if existing.is_empty() {
+            bin_dir.to_string_lossy().to_string()
+        } else {
+            format!("{}:{}", bin_dir.display(), existing)
+        };
+        cmd.env("DYLD_LIBRARY_PATH", new_val);
+    }
 
     #[cfg(target_os = "windows")]
     {

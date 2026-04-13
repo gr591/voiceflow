@@ -30,8 +30,8 @@ export function useOverlayVisibility(): VisibilityState {
     });
 
     return () => {
-      unlistenShow.then((f) => f());
-      unlistenHide.then((f) => f());
+      unlistenShow.then((f) => f()).catch(console.error);
+      unlistenHide.then((f) => f()).catch(console.error);
     };
   }, []);
 

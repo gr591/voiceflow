@@ -24,6 +24,9 @@ export class SpeechManager implements SpeechManagerAPI {
   }
 
   setProvider(providerId: "whisper-cloud" | "whisper-local", apiKey?: string): void {
+    if (this.provider.isRecording()) {
+      this.provider.stop().catch(console.error);
+    }
     if (providerId === "whisper-local") {
       this.provider = new WhisperLocalProvider();
     } else if (providerId === "whisper-cloud" && apiKey) {

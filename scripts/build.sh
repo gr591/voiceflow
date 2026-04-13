@@ -41,11 +41,13 @@ elif $NO_BUNDLES; then
   $TAURI build --no-bundle
 
 else
-  # macOS: build a .dmg and .app bundle
-  echo "Building macOS app bundle..."
-  $TAURI build --bundles dmg,app
+  # macOS: build a universal (arm64 + x86_64) .dmg and .app bundle
+  echo "Building macOS universal app bundle..."
+  $TAURI build --target universal-apple-darwin --bundles dmg,app
 
-  DMG=$(find src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+  DMG=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg \
+             src-tauri/target/release/bundle/dmg \
+        -name "*.dmg" 2>/dev/null | head -1)
   if [ -n "$DMG" ]; then
     echo ""
     echo "DMG ready: $DMG"

@@ -17,6 +17,7 @@ export interface LLMRequestOptions {
   maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {
