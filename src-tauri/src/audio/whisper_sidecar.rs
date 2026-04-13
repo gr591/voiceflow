@@ -28,9 +28,19 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
     let mut cmd = std::process::Command::new(&bin);
     if let Some(ref d) = bin_dir {
         cmd.current_dir(d);
-        // macOS: DYLD_LIBRARY_PATH so bundled libwhisper.dylib is found.
+        // macOS: prepend bin_dir to DYLD_LIBRARY_PATH so bundled libwhisper.dylib,
+        // libggml*.dylib, etc. are found.  Prepend rather than replace so any
+        // existing DYLD_LIBRARY_PATH from the caller is preserved.
         #[cfg(target_os = "macos")]
-        cmd.env("DYLD_LIBRARY_PATH", d);
+        {
+            let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_val = if existing.is_empty() {
+                d.to_string_lossy().to_string()
+            } else {
+                format!("{}:{}", d.display(), existing)
+            };
+            cmd.env("DYLD_LIBRARY_PATH", new_val);
+        }
     }
     // Suppress the console window on Windows.
     #[cfg(target_os = "windows")]
