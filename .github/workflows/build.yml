@@ -127,7 +127,49 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Download macOS binaries
+      - name: Build whisper.cpp from source (static universal binary)
+        # Homebrew's whisper-cpp binary has absolute dylib paths baked into the
+        # Mach-O header (/opt/homebrew/lib/libwhisper.dylib etc.), which dyld
+        # tries before consulting DYLD_LIBRARY_PATH — so it fails on users'
+        # machines that don't have Homebrew in that location.  Build from
+        # source with BUILD_SHARED_LIBS=OFF to produce a single self-contained
+        # universal binary with zero dylib dependencies.
+        run: |
+          set -euo pipefail
+          BIN="$PWD/src-tauri/binaries"
+          mkdir -p "$BIN"
+          git clone --depth 1 https://github.com/ggerganov/whisper.cpp /tmp/whisper.cpp
+          cd /tmp/whisper.cpp
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DGGML_METAL=OFF \
+            -DGGML_ACCELERATE=OFF \
+            -DGGML_BLAS=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          cmake --build build --config Release -j
+          # Locate and copy the built binary (exact path varies by whisper.cpp version)
+          WBIN="$(find build -type f -name 'whisper-cli' -perm +111 2>/dev/null | head -1)"
+          if [ -z "$WBIN" ]; then
+            WBIN="$(find build -type f -name 'main' -perm +111 2>/dev/null | head -1)"
+          fi
+          if [ -z "$WBIN" ]; then
+            echo "ERROR: could not find whisper-cli or main in build output"
+            find build -type f -perm +111
+            exit 1
+          fi
+          echo "Found whisper binary: $WBIN"
+          cp -f "$WBIN" "$BIN/whisper-cli"
+          chmod +x "$BIN/whisper-cli"
+          # Verify: should be a fat Mach-O with NO @rpath/dylib dependencies outside /usr/lib
+          file "$BIN/whisper-cli"
+          echo "--- dylib deps ---"
+          otool -L "$BIN/whisper-cli"
+
+      - name: Download remaining macOS binaries (piper, llama, models)
         run: bash scripts/download-binaries-mac.sh
         env:
           # Higher GitHub API rate limit for asset URL lookups

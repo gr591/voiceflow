@@ -17,7 +17,7 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 $whisper = "src-tauri\binaries\whisper.exe"
 $model   = "src-tauri\binaries\ggml-base.bin"
 $llama   = "src-tauri\binaries\llama\llama-server.exe"
-$gguf    = "src-tauri\binaries\models\qwen2.5-0.5b-instruct-q4_k_m.gguf"
+$gguf    = "src-tauri\binaries\models\LFM2.5-350M-Q8_0.gguf"
 
 if (-not (Test-Path $whisper) -or -not (Test-Path $model)) {
     Write-Warning "whisper.exe or ggml-base.bin missing from src-tauri\binaries\"

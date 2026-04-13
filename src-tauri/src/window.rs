@@ -89,7 +89,10 @@ fn set_no_activate(hwnd: HWND) {
     }
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE.0 as i32);
+        let result = SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE.0 as i32);
+        if result == 0 {
+            eprintln!("[window] SetWindowLongW failed for HWND {:?}", hwnd);
+        }
     }
 }
 

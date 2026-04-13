@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useConfig } from "../config/ConfigContext";
 import { SUPPORTED_LANGUAGES } from "../speech/PostProcessor";
 
@@ -8,6 +9,30 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const { config, updateConfig } = useConfig();
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+
+  async function runWhisperDiagnostic() {
+    setDiagRunning(true);
+    setDiagnostic("Running diagnostic…");
+    try {
+      const report = await invoke<string>("whisper_diagnose");
+      setDiagnostic(report);
+    } catch (e) {
+      setDiagnostic(`Diagnostic failed: ${String(e)}`);
+    } finally {
+      setDiagRunning(false);
+    }
+  }
+
+  async function copyDiagnostic() {
+    if (!diagnostic) return;
+    try {
+      await navigator.clipboard.writeText(diagnostic);
+    } catch {
+      /* ignore */
+    }
+  }
 
   return (
     <div className="absolute inset-0 bg-bg z-20 flex flex-col rounded-xl overflow-hidden">
@@ -213,6 +238,33 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 }
               />
             </>
+          )}
+        </Section>
+
+        <Section title="Diagnostics">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={runWhisperDiagnostic}
+              disabled={diagRunning}
+              className="bg-surface hover:bg-border text-fg rounded-md px-3 py-1 border border-border disabled:opacity-50"
+            >
+              {diagRunning ? "Running…" : "Test whisper"}
+            </button>
+            {diagnostic && !diagRunning && (
+              <button
+                type="button"
+                onClick={copyDiagnostic}
+                className="bg-surface hover:bg-border text-fg rounded-md px-3 py-1 border border-border"
+              >
+                Copy
+              </button>
+            )}
+          </div>
+          {diagnostic && (
+            <pre className="bg-surface text-fg rounded-md p-2 border border-border text-[10px] leading-tight whitespace-pre-wrap max-h-64 overflow-auto font-mono">
+              {diagnostic}
+            </pre>
           )}
         </Section>
 

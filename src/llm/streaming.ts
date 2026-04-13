@@ -10,20 +10,32 @@ export async function* parseSSEStream(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") return;
-        if (data) yield data;
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") return;
+          if (data) yield data;
+        }
       }
     }
+
+    // Drain any remaining data that wasn't followed by a newline
+    if (buffer.startsWith("data: ")) {
+      const data = buffer.slice(6).trim();
+      if (data && data !== "[DONE]") yield data;
+    }
+  } finally {
+    // Always cancel the reader so the underlying HTTP socket is closed,
+    // even if the consumer stops iterating early (e.g. abort, unmount).
+    try { await reader.cancel(); } catch { /* ignore */ }
   }
 }

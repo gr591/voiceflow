@@ -24,13 +24,20 @@ export class WavCapture {
 
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    // Use 16 kHz if the browser supports it.
-    this.ctx = new AudioContext({ sampleRate: this.sampleRate });
-    this.sampleRate = this.ctx.sampleRate;
+    try {
+      // Use 16 kHz if the browser supports it.
+      this.ctx = new AudioContext({ sampleRate: this.sampleRate });
+      this.sampleRate = this.ctx.sampleRate;
 
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    // bufferSize 4096 gives ~250 ms chunks at 16 kHz
-    this.processor = this.ctx.createScriptProcessor(4096, 1, 1);
+      this.source = this.ctx.createMediaStreamSource(this.stream);
+      // bufferSize 4096 gives ~250 ms chunks at 16 kHz
+      this.processor = this.ctx.createScriptProcessor(4096, 1, 1);
+    } catch (err) {
+      // AudioContext setup failed — release the microphone before rethrowing
+      this.stream.getTracks().forEach(t => t.stop());
+      this.stream = null;
+      throw err;
+    }
 
     this.processor.onaudioprocess = (e) => {
       const data = e.inputBuffer.getChannelData(0);

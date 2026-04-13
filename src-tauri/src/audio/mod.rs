@@ -58,6 +58,16 @@ pub async fn transcribe_audio(audio: Vec<u8>) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Run a diagnostic report on the whisper sidecar.  Returns a multi-line
+/// string with binary path, architecture, dylib deps, --help output, and a
+/// round-trip silent-WAV transcription test.  Safe to call from the UI.
+#[tauri::command]
+pub async fn whisper_diagnose() -> Result<String, String> {
+    tokio::task::spawn_blocking(whisper_sidecar::diagnose)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Synthesise `text` with the bundled piper binary.
 /// Returns raw WAV bytes the frontend plays via HTMLAudioElement.
 #[tauri::command]

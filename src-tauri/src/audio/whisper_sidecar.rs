@@ -28,9 +28,19 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
     let mut cmd = std::process::Command::new(&bin);
     if let Some(ref d) = bin_dir {
         cmd.current_dir(d);
-        // macOS: DYLD_LIBRARY_PATH so bundled libwhisper.dylib is found.
+        // macOS: prepend bin_dir to DYLD_LIBRARY_PATH so bundled libwhisper.dylib,
+        // libggml*.dylib, etc. are found.  Prepend rather than replace so any
+        // existing DYLD_LIBRARY_PATH from the caller is preserved.
         #[cfg(target_os = "macos")]
-        cmd.env("DYLD_LIBRARY_PATH", d);
+        {
+            let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_val = if existing.is_empty() {
+                d.to_string_lossy().to_string()
+            } else {
+                format!("{}:{}", d.display(), existing)
+            };
+            cmd.env("DYLD_LIBRARY_PATH", new_val);
+        }
     }
     // Suppress the console window on Windows.
     #[cfg(target_os = "windows")]
@@ -97,6 +107,132 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
     } else {
         Ok(trimmed)
     }
+}
+
+/// Diagnostic report for the whisper sidecar setup.  Used by the
+/// `whisper_diagnose` Tauri command to help users troubleshoot "no output"
+/// errors without attaching a debugger.
+///
+/// Returns a plain-text report with:
+///   - resolved binary + model paths (or why resolution failed)
+///   - architecture and dylib dependencies (via `file` + `otool` on macOS)
+///   - result of running `whisper-cli --help` (should print usage to stderr)
+///   - result of a round-trip transcription on a 1-second silent WAV
+pub fn diagnose() -> String {
+    use std::fmt::Write as _;
+    let mut report = String::new();
+    let _ = writeln!(report, "=== VoiceFlow whisper diagnostic ===");
+    let _ = writeln!(report, "platform: {}", std::env::consts::OS);
+    let _ = writeln!(report, "arch: {}", std::env::consts::ARCH);
+
+    let (bin, model) = match resolve_paths() {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = writeln!(report, "\n[resolve_paths] FAILED: {e}");
+            return report;
+        }
+    };
+    let _ = writeln!(report, "\nbinary: {}", bin.display());
+    let _ = writeln!(report, "model:  {}", model.display());
+    let _ = writeln!(
+        report,
+        "binary exists: {}, model exists: {}",
+        bin.exists(),
+        model.exists()
+    );
+
+    // macOS: inspect the Mach-O headers to see what dylibs whisper-cli wants
+    #[cfg(target_os = "macos")]
+    {
+        let _ = writeln!(report, "\n--- file ---");
+        if let Ok(out) = std::process::Command::new("file").arg(&bin).output() {
+            let _ = report.write_str(&String::from_utf8_lossy(&out.stdout));
+        }
+        let _ = writeln!(report, "\n--- otool -L ---");
+        if let Ok(out) = std::process::Command::new("otool").args(["-L"]).arg(&bin).output() {
+            let _ = report.write_str(&String::from_utf8_lossy(&out.stdout));
+        }
+    }
+
+    // Run with --help so whisper prints usage and exits quickly.  If this
+    // fails, the binary is broken / missing dylibs / wrong arch.
+    let _ = writeln!(report, "\n--- whisper-cli --help (stderr + exit) ---");
+    let bin_dir = bin.parent().map(|p| p.to_path_buf());
+    let mut cmd = std::process::Command::new(&bin);
+    if let Some(ref d) = bin_dir {
+        cmd.current_dir(d);
+        #[cfg(target_os = "macos")]
+        {
+            let existing = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_val = if existing.is_empty() {
+                d.to_string_lossy().to_string()
+            } else {
+                format!("{}:{}", d.display(), existing)
+            };
+            cmd.env("DYLD_LIBRARY_PATH", new_val);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    match cmd.arg("--help").output() {
+        Ok(out) => {
+            let _ = writeln!(report, "exit: {}", out.status);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let _ = writeln!(report, "stdout ({} bytes):", stdout.len());
+            for line in stdout.lines().take(20) {
+                let _ = writeln!(report, "  {line}");
+            }
+            let _ = writeln!(report, "stderr ({} bytes):", stderr.len());
+            for line in stderr.lines().take(20) {
+                let _ = writeln!(report, "  {line}");
+            }
+        }
+        Err(e) => {
+            let _ = writeln!(report, "FAILED TO SPAWN: {e}");
+        }
+    }
+
+    // Round-trip: generate 1s of silence, feed through transcribe(), report result
+    let _ = writeln!(report, "\n--- round-trip silent WAV test ---");
+    let wav = make_silent_wav_1s();
+    match transcribe(wav) {
+        Ok(text) => {
+            let _ = writeln!(report, "OK — returned text: {:?}", text);
+        }
+        Err(e) => {
+            let _ = writeln!(report, "FAILED: {e}");
+        }
+    }
+
+    report
+}
+
+/// Build a 1-second 16 kHz mono 16-bit PCM WAV of pure silence.
+fn make_silent_wav_1s() -> Vec<u8> {
+    let sample_rate: u32 = 16000;
+    let num_samples: u32 = sample_rate;
+    let data_size = num_samples * 2;
+    let mut buf = Vec::with_capacity(44 + data_size as usize);
+    buf.extend_from_slice(b"RIFF");
+    buf.extend_from_slice(&(36 + data_size).to_le_bytes());
+    buf.extend_from_slice(b"WAVE");
+    buf.extend_from_slice(b"fmt ");
+    buf.extend_from_slice(&16u32.to_le_bytes());
+    buf.extend_from_slice(&1u16.to_le_bytes());       // PCM
+    buf.extend_from_slice(&1u16.to_le_bytes());       // mono
+    buf.extend_from_slice(&sample_rate.to_le_bytes());
+    buf.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    buf.extend_from_slice(&2u16.to_le_bytes());
+    buf.extend_from_slice(&16u16.to_le_bytes());
+    buf.extend_from_slice(b"data");
+    buf.extend_from_slice(&data_size.to_le_bytes());
+    buf.extend(std::iter::repeat(0u8).take(data_size as usize));
+    buf
 }
 
 fn resolve_paths() -> Result<(PathBuf, PathBuf), String> {
