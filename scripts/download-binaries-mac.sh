@@ -79,8 +79,14 @@ else
         if [ -n "$WHISPER_BIN" ]; then
             cp -f "$WHISPER_BIN" "$BIN/whisper-cli"
             chmod +x "$BIN/whisper-cli"
-            # Copy any whisper dylibs brew may have installed
-            find "$(brew --prefix)/lib" -maxdepth 1 -name "libwhisper*" 2>/dev/null \
+            # Copy whisper.cpp runtime dylibs from Homebrew.
+            # Modern whisper.cpp (v1.6+) splits ggml into separate dylibs:
+            #   libggml.dylib, libggml-base.dylib, libggml-cpu.dylib,
+            #   libggml-metal.dylib, libggml-blas.dylib, libopenblas.dylib
+            # Without them in the bundle, whisper-cli crashes at dylib load
+            # time, producing zero output and a dyld error in stderr.
+            find "$(brew --prefix)/lib" -maxdepth 1 \
+                \( -name "libwhisper*" -o -name "libggml*" -o -name "libopenblas*" \) 2>/dev/null \
                 | while read -r f; do cp -f "$f" "$BIN/"; done
             echo "  whisper-cli installed from Homebrew."
         else
