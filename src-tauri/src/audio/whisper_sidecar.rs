@@ -57,12 +57,24 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
 
     let _ = std::fs::remove_file(&tmp_wav);
 
-    // whisper.cpp writes to <wav>.txt; fall back to stdout
+    // whisper.cpp writes to <wav>.txt.  Some versions write relative to their
+    // working directory instead of alongside the -f input file, so also check
+    // the binary's directory as a fallback before trying stdout.
+    let bin_dir_txt = bin_dir.as_ref().map(|d| d.join("voiceflow_in.wav.txt"));
     let text = if tmp_txt.exists() {
         let t = std::fs::read_to_string(&tmp_txt)
             .map_err(|e| format!("read transcript: {e}"))?;
         let _ = std::fs::remove_file(&tmp_txt);
         t
+    } else if let Some(ref alt) = bin_dir_txt {
+        if alt.exists() {
+            let t = std::fs::read_to_string(alt)
+                .map_err(|e| format!("read transcript (bindir): {e}"))?;
+            let _ = std::fs::remove_file(alt);
+            t
+        } else {
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
     } else {
         String::from_utf8_lossy(&output.stdout).to_string()
     };
@@ -71,6 +83,11 @@ pub fn transcribe(wav_bytes: Vec<u8>) -> Result<String, String> {
     if trimmed.is_empty() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let status = output.status;
+        // Log full details so they appear in Console.app / `tauri dev` terminal
+        eprintln!(
+            "[whisper] no output. exit={status} bin={bin} stderr={stderr}",
+            bin = bin.display()
+        );
         Err(format!(
             "whisper produced no output (exit {status}). \
              binary={bin} \
