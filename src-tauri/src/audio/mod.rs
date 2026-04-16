@@ -8,38 +8,42 @@ pub mod whisper_sidecar;
 /// Synchronous: blocks until speech completes.
 #[tauri::command]
 pub async fn speak_text(text: String, _provider: Option<String>) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        // Single-quoted PS string — no variable/backtick interpolation; only '' escaping needed.
-        let escaped = text.replace('\'', "''");
-        let script = format!(
-            "Add-Type -AssemblyName System.Speech; \
-             $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
-             $s.Speak('{escaped}')"
-        );
-        let mut cmd = std::process::Command::new("powershell");
-        cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.output().map_err(|e| e.to_string())?;
-    }
+    // Process::output blocks until the synth finishes — run on the blocking pool
+    // so a long utterance doesn't pin a tokio worker.
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            let escaped = text.replace('\'', "''");
+            let script = format!(
+                "Add-Type -AssemblyName System.Speech; \
+                 $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
+                 $s.Speak('{escaped}')"
+            );
+            let mut cmd = std::process::Command::new("powershell");
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            cmd.output().map_err(|e| e.to_string())?;
+        }
 
-    #[cfg(target_os = "macos")]
-    {
-        // macOS `say` is always available; no shell injection risk as we pass text as a separate arg.
-        std::process::Command::new("say")
-            .arg(&text)
-            .output()
-            .map_err(|e| format!("say command failed: {e}"))?;
-    }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("say")
+                .arg(&text)
+                .output()
+                .map_err(|e| format!("say command failed: {e}"))?;
+        }
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        let _ = text; // TTS not supported on this platform
-    }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            let _ = text;
+        }
 
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("speak_text join: {e}"))?
 }
 
 /// Stop any in-progress TTS playback.

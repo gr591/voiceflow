@@ -23,8 +23,11 @@ export function ResponseActions({ text }: ResponseActionsProps) {
   async function handleSpeak() {
     if (speaking) { ttsManager.stop(); setSpeaking(false); return; }
     setSpeaking(true);
-    await ttsManager.speak(text);
-    setSpeaking(false);
+    try {
+      await ttsManager.speak(text);
+    } finally {
+      setSpeaking(false);
+    }
   }
 
   return (

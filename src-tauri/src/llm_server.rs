@@ -121,7 +121,10 @@ fn resolve_paths() -> Option<(PathBuf, PathBuf)> {
 /// Safe to call multiple times — is a no-op if server is already up.
 #[tauri::command]
 pub fn start_bundled_llm(state: tauri::State<LlmServerState>) -> Result<u16, String> {
-    let mut guard = state.child.lock().unwrap();
+    let mut guard = state
+        .child
+        .lock()
+        .map_err(|_| "llm server state mutex poisoned".to_string())?;
 
     // Already running?
     if let Some(ref mut child) = *guard {
@@ -191,7 +194,10 @@ pub fn start_bundled_llm(state: tauri::State<LlmServerState>) -> Result<u16, Str
 /// Kill the bundled llama-server (called on app exit or when user disables it).
 #[tauri::command]
 pub fn stop_bundled_llm(state: tauri::State<LlmServerState>) -> Result<(), String> {
-    let mut guard = state.child.lock().unwrap();
+    let mut guard = state
+        .child
+        .lock()
+        .map_err(|_| "llm server state mutex poisoned".to_string())?;
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
         let _ = child.wait();

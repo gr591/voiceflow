@@ -16,7 +16,8 @@ export async function* parseSSEStream(
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split("\n");
+      // Handle both LF and CRLF line endings — some servers use \r\n.
+      const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
 
       for (const line of lines) {
@@ -28,7 +29,8 @@ export async function* parseSSEStream(
       }
     }
 
-    // Drain any remaining data that wasn't followed by a newline
+    // Flush any remaining bytes in the decoder before draining the buffer.
+    buffer += decoder.decode();
     if (buffer.startsWith("data: ")) {
       const data = buffer.slice(6).trim();
       if (data && data !== "[DONE]") yield data;

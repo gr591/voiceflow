@@ -21,6 +21,8 @@ const SMALL_TEXT_H   = 252;  // text preview + buttons
 const LARGE_W        = 480;
 const LARGE_H        = 400;
 
+const MAX_HISTORY    = 50;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Root
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +50,15 @@ export function Overlay() {
   useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
   useEffect(() => { uiModeRef.current = uiMode; }, [uiMode]);
 
+  // Unsubscribe the partial-transcript listener when the overlay unmounts,
+  // so a late-firing onPartialResult doesn't touch unmounted state.
+  useEffect(() => {
+    return () => {
+      unsubPartialRef.current?.();
+      unsubPartialRef.current = null;
+    };
+  }, []);
+
   // ── Window resize for small mode ──────────────────────────────────────────
   useEffect(() => {
     if (uiMode !== "small" || !visible) return;
@@ -74,6 +85,8 @@ export function Overlay() {
         setIsRecording(false);
         setStatus("idle");
       }
+      unsubPartialRef.current?.();
+      unsubPartialRef.current = null;
       setPartial("");
       setError(null);
       setUiMode("small");
@@ -172,14 +185,17 @@ export function Overlay() {
   // ── Large mode: send to LLM ───────────────────────────────────────────────
   async function handleSend(text: string) {
     const userMsg: LLMMessage = { role: "user", content: text };
-    const history = [...messages, userMsg];
+    // Cap history to the most recent 50 messages so long sessions don't
+    // balloon memory or blow past the provider's context window.
+    const history = [...messages, userMsg].slice(-MAX_HISTORY);
     setMessages(history);
     setStatus("thinking");
     const finalText = await stream(history, {
       systemPrompt: "You are a helpful AI assistant.",
       model: config.llmProviders[config.activeLlmProvider as keyof typeof config.llmProviders]?.model ?? "gpt-4o",
     });
-    setMessages([...history, { role: "assistant", content: finalText || "" }]);
+    const assistantMsg: LLMMessage = { role: "assistant", content: finalText || "" };
+    setMessages([...history, assistantMsg].slice(-MAX_HISTORY));
     setStatus("idle");
   }
 

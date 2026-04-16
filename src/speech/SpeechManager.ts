@@ -24,8 +24,14 @@ export class SpeechManager implements SpeechManagerAPI {
   }
 
   setProvider(providerId: "whisper-cloud" | "whisper-local", apiKey?: string): void {
-    if (this.provider.isRecording()) {
-      this.provider.stop().catch(console.error);
+    const prior = this.provider;
+    // Detach callbacks from the prior provider so any late-firing events from
+    // its in-flight work don't leak into the new provider's wiring.
+    prior.onPartialResult(() => {});
+    prior.onError(() => {});
+    if (prior.onAutoStop) prior.onAutoStop(undefined);
+    if (prior.isRecording()) {
+      prior.stop().catch(console.error);
     }
     if (providerId === "whisper-local") {
       this.provider = new WhisperLocalProvider();

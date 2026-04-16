@@ -46,8 +46,14 @@ export class OpenAIProvider implements LLMProvider {
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      yield { type: "error", error: `OpenAI API error ${res.status}: ${err}` };
+      const err = (await res.text()).slice(0, 500);
+      const prefix =
+        res.status === 401
+          ? "Invalid API key"
+          : res.status === 429
+            ? "Rate limited — try again in a moment"
+            : `OpenAI API error ${res.status}`;
+      yield { type: "error", error: `${prefix}: ${err}` };
       return;
     }
 
@@ -79,6 +85,9 @@ export class OpenAIProvider implements LLMProvider {
       const res = await fetch(`${this.baseUrl}/models`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
+      // 401/403: surface as empty list so UI can show "invalid key" hint
+      // instead of a bogus default. Other failures fall back to default.
+      if (res.status === 401 || res.status === 403) return [];
       if (!res.ok) return [this.defaultModel];
       const data = await res.json();
       return (data.data as Array<{ id: string }>)
