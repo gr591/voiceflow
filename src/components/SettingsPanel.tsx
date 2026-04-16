@@ -11,6 +11,22 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const { config, updateConfig } = useConfig();
   const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [diagRunning, setDiagRunning] = useState(false);
+  const [axStatus, setAxStatus] = useState<string | null>(null);
+
+  async function checkAccessibility(prompt: boolean) {
+    try {
+      const trusted = await invoke<boolean>("check_accessibility_permission", { prompt });
+      setAxStatus(
+        trusted
+          ? "✓ Accessibility granted — Insert should work"
+          : prompt
+            ? "✗ Not granted — System Settings opened; add VoiceFlow to the list then restart the app"
+            : "✗ Not granted — click 'Request' to open System Settings",
+      );
+    } catch (e) {
+      setAxStatus(`Error: ${String(e)}`);
+    }
+  }
 
   async function runWhisperDiagnostic() {
     setDiagRunning(true);
@@ -242,7 +258,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         </Section>
 
         <Section title="Diagnostics">
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               type="button"
               onClick={runWhisperDiagnostic}
@@ -250,6 +266,20 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               className="bg-surface hover:bg-border text-fg rounded-md px-3 py-1 border border-border disabled:opacity-50"
             >
               {diagRunning ? "Running…" : "Test whisper"}
+            </button>
+            <button
+              type="button"
+              onClick={() => checkAccessibility(false)}
+              className="bg-surface hover:bg-border text-fg rounded-md px-3 py-1 border border-border"
+            >
+              Check accessibility
+            </button>
+            <button
+              type="button"
+              onClick={() => checkAccessibility(true)}
+              className="bg-surface hover:bg-border text-fg rounded-md px-3 py-1 border border-border"
+            >
+              Request
             </button>
             {diagnostic && !diagRunning && (
               <button
@@ -261,6 +291,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               </button>
             )}
           </div>
+          {axStatus && (
+            <p className="text-muted text-[11px] leading-tight">{axStatus}</p>
+          )}
           {diagnostic && (
             <pre className="bg-surface text-fg rounded-md p-2 border border-border text-[10px] leading-tight whitespace-pre-wrap max-h-64 overflow-auto font-mono">
               {diagnostic}

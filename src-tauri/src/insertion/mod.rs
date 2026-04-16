@@ -50,11 +50,18 @@ pub async fn insert_at_cursor(app: AppHandle, text: String) -> Result<(), String
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS: post CGEvents directly. Enigo's keycode_to_string calls
-        // TSMGetInputSourceProperty which crashes off the main dispatch queue.
-        // osascript works but attributes keystrokes to osascript, not VoiceFlow,
-        // so the Accessibility grant can't be scoped to the app. CGEventPost
-        // attributes to the calling process (VoiceFlow), which is what we want.
+        // macOS: require Accessibility permission, then post CGEvents directly.
+        // Without Accessibility, CGEventPost silently drops events. Check first
+        // so we can give the user an actionable error.
+        if !is_accessibility_trusted(true) {
+            return Err(
+                "VoiceFlow needs Accessibility permission to paste. \
+                 Enable it in System Settings → Privacy & Security → Accessibility, \
+                 then quit and reopen VoiceFlow."
+                    .to_string(),
+            );
+        }
+
         use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
         use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
 
@@ -197,6 +204,46 @@ fn set_clipboard_text(text: &str) -> Result<(), String> {
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn set_clipboard_text(_text: &str) -> Result<(), String> {
     Err("Clipboard not supported on this platform".to_string())
+}
+
+/// Check whether VoiceFlow has Accessibility permission (macOS only).
+/// When `prompt` is true, macOS will open System Settings → Privacy &
+/// Security → Accessibility if the app isn't already trusted.
+#[cfg(target_os = "macos")]
+fn is_accessibility_trusted(prompt: bool) -> bool {
+    use core_foundation::base::TCFType;
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
+    use core_foundation::string::CFString;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
+    }
+
+    let key = CFString::new("AXTrustedCheckOptionPrompt");
+    let value = if prompt {
+        CFBoolean::true_value()
+    } else {
+        CFBoolean::false_value()
+    };
+    let dict = CFDictionary::from_CFType_pairs(&[(key, value)]);
+    unsafe { AXIsProcessTrustedWithOptions(dict.as_concrete_TypeRef()) }
+}
+
+/// Diagnostic: report Accessibility permission status and (on macOS)
+/// open the Accessibility settings pane so the user can grant it.
+#[tauri::command]
+pub async fn check_accessibility_permission(prompt: bool) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(is_accessibility_trusted(prompt))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = prompt;
+        Ok(true)
+    }
 }
 
 /// Restore keyboard focus to the window with the given HWND.

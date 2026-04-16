@@ -66,6 +66,7 @@ pub fn run() {
             audio::speak_with_piper,
             // WS5: text insertion (stub — WS5 replaces with real implementation)
             insertion::insert_at_cursor,
+            insertion::check_accessibility_permission,
             // Bundled LLM (llama.cpp server)
             llm_server::start_bundled_llm,
             llm_server::stop_bundled_llm,
